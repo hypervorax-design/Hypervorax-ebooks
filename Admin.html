@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HypervoraX Control Panel</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --blue: #3b82f6; --purple: #8b5cf6; --pink: #ec4899; --dark: #0f172a; --gray: #64748b; --light: #f1f5f9; }
+        body { background: #0f172a; font-family: 'Segoe UI', sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
+        .login-box, .admin-box { background: #1e293b; padding: 25px; border-radius: 15px; width: 100%; max-width: 400px; border: 1px solid #334155; margin: 20px auto; }
+        .login-box h2, .admin-box h2 { text-align: center; color: var(--purple); margin-bottom: 15px; }
+        .login-box input, .login-box button, .admin-box input, .admin-box select, .admin-box button {
+            width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid #334155;
+            background: #0f172a; color: white; outline: none;
+        }
+        .login-box button, .admin-box button { background: linear-gradient(90deg, var(--blue), var(--purple)); border: none; font-weight: bold; cursor: pointer; }
+        .logout-btn { background: #ef4444; border: none; padding: 8px 16px; border-radius: 8px; color: white; cursor: pointer; margin-bottom: 20px; }
+        .inventory-section { width: 100%; max-width: 400px; margin: 30px auto; }
+        .inventory-section h3 { color: white; margin-bottom: 10px; }
+        .inventory-item { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
+        .del-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; }
+        .loading, .error { text-align: center; color: var(--gray); padding: 20px; }
+        .error { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div id="loginContainer" style="display:none;">
+        <div class="login-box">
+            <h2>Admin Login</h2>
+            <input type="email" id="email" placeholder="Email" autocomplete="email">
+            <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+            <button id="loginBtn">Login</button>
+            <div id="loginError" class="error" style="display:none;"></div>
+        </div>
+    </div>
+
+    <div id="adminContainer" style="display:none;">
+        <button class="logout-btn" id="logoutBtn">Logout</button>
+        <div class="admin-box">
+            <h2>HypervoraX Admin</h2>
+            <label>Book Title</label>
+            <input type="text" id="title" placeholder="e.g. Beyond the Stars">
+            
+            <label>Price</label>
+            <input type="text" id="price" placeholder="e.g. ₦3,000">
+            
+            <label>Category</label>
+            <select id="category">
+                <option value="" disabled selected>Choose a genre...</option>
+                <option value="Business">Business</option>
+                <option value="Courses">Digital Courses</option>
+                <option value="Tech">Tech</option>
+                <option value="Marketing">Marketing</option>
+                <option value="Fantasy">Fantasy</option>
+                <option value="Romance">Romance</option>
+                <option value="Mystery">Mystery</option>
+                <option value="Sci-Fi">Sci-Fi</option>
+                <option value="History">History</option>
+                <option value="Action">Action</option>
+                <option value="Young Adult">Young Adult</option>
+            </select>
+            
+            <label>Image Link (Must start with http)</label>
+            <input type="text" id="coverUrl" placeholder="Paste direct image URL">
+            
+            <button id="saveBtn">Publish to Store</button>
+        </div>
+
+        <div class="inventory-section">
+            <h3>Live Inventory</h3>
+            <div id="loadingStatus" class="loading">Fetching data...</div>
+            <div id="inventory"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, auth } from './firebase-config.js';
+        import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+        import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
+        const loginContainer = document.getElementById('loginContainer');
+        const adminContainer = document.getElementById('adminContainer');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById('loginBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const loginError = document.getElementById('loginError');
+        const saveBtn = document.getElementById('saveBtn');
+        const titleInput = document.getElementById('title');
+        const priceInput = document.getElementById('price');
+        const categorySelect = document.getElementById('category');
+        const coverUrlInput = document.getElementById('coverUrl');
+        const loadingStatus = document.getElementById('loadingStatus');
+        const inventoryDiv = document.getElementById('inventory');
+
+        let unsubscribeInventory = null;  // to clean up previous listener
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+
+        function loadInventory() {
+            // Remove previous listener if exists
+            if (unsubscribeInventory) {
+                unsubscribeInventory();
+                unsubscribeInventory = null;
+            }
+
+            const q = query(collection(db, "books"), orderBy("timestamp", "desc"));
+            unsubscribeInventory = onSnapshot(q, (snap) => {
+                loadingStatus.style.display = 'none';
+                inventoryDiv.innerHTML = snap.docs.map(d => {
+                    const book = d.data();
+                    const safeTitle = escapeHtml(book.title);
+                    return `
+                        <div class="inventory-item">
+                            <span>${safeTitle}</span>
+                            <button class="del-btn" data-id="${d.id}">Remove</button>
+                        </div>
+                    `;
+                }).join('');
+                // Attach delete listeners
+                document.querySelectorAll('.del-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-id');
+                        if (confirm("Permanently delete this book?")) {
+                            try {
+                                await deleteDoc(doc(db, "books", id));
+                                alert("🗑️ Deleted successfully");
+                            } catch (e) {
+                                alert("Delete failed: " + e.message);
+                            }
+                        }
+                    });
+                });
+            }, (error) => {
+                loadingStatus.style.display = 'none';
+                inventoryDiv.innerHTML = `<div class="error">Error loading books: ${error.message}</div>`;
+            });
+        }
+
+        // Auth state listener
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loginContainer.style.display = 'none';
+                adminContainer.style.display = 'block';
+                loadInventory();   // now cleans up previous listener
+            } else {
+                loginContainer.style.display = 'block';
+                adminContainer.style.display = 'none';
+                if (inventoryDiv) inventoryDiv.innerHTML = '';
+                // Also clean up any leftover listener if user logs out
+                if (unsubscribeInventory) {
+                    unsubscribeInventory();
+                    unsubscribeInventory = null;
+                }
+            }
+        });
+
+        loginBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            if (!email || !password) {
+                loginError.textContent = "Please enter email and password.";
+                loginError.style.display = 'block';
+                return;
+            }
+            loginError.style.display = 'none';
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                loginError.textContent = "Login failed: " + error.message;
+                loginError.style.display = 'block';
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            await signOut(auth);
+        });
+
+        saveBtn.addEventListener('click', async () => {
+            const title = titleInput.value.trim();
+            const price = priceInput.value.trim();
+            const category = categorySelect.value;
+            const coverUrl = coverUrlInput.value.trim();
+
+            if (!title || !price || !category || !coverUrl) {
+                alert("All fields are required!");
+                return;
+            }
+            if (!coverUrl.startsWith('http')) {
+                alert("Image URL must start with http:// or https://");
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, "books"), {
+                    title, price, category, coverUrl,
+                    timestamp: Date.now()
+                });
+                alert("✅ Book added!");
+                // Reset form
+                titleInput.value = '';
+                priceInput.value = '';
+                categorySelect.value = '';
+                coverUrlInput.value = '';
+            } catch (error) {
+                alert("Error adding book: " + error.message);
+            }
+        });
+    </script>
+</body>
+</html>
