@@ -40,6 +40,16 @@
         .loading, .error, .empty { text-align: center; padding: 40px; font-weight: bold; }
         .error { color: #ef4444; }
         .empty { color: var(--gray); }
+        .book-description {
+            font-size: 0.85rem;
+            color: var(--gray);
+            margin: 8px 0;
+            line-height: 1.4;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
     </style>
 </head>
 <body>
@@ -99,6 +109,7 @@
                 const safeTitle = escapeHtml(book.title);
                 const safeCategory = escapeHtml(book.category);
                 const safePrice = escapeHtml(book.price);
+                const safeDescription = book.description ? escapeHtml(book.description) : '';
                 const coverUrl = book.coverUrl;
                 const whatsappUrl = `https://wa.me/2348115422216?text=${encodeURIComponent(`Hello HypervoraX, I want to buy "${book.title}".`)}`;
                 return `
@@ -107,6 +118,7 @@
                         <div class="book-info">
                             <small style="color:var(--purple); font-weight:bold; text-transform:uppercase;">${safeCategory}</small>
                             <h3 style="margin:5px 0;">${safeTitle}</h3>
+                            ${safeDescription ? `<p class="book-description">${safeDescription}</p>` : ''}
                             <div class="book-footer">
                                 <span style="font-size:1.4rem; font-weight:900;">${safePrice}</span>
                                 <a href="${whatsappUrl}" class="buy-btn">Get It</a>
