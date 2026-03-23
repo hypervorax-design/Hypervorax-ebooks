@@ -10,10 +10,11 @@
         body { background: #0f172a; font-family: 'Segoe UI', sans-serif; padding: 20px; display: flex; flex-direction: column; align-items: center; }
         .login-box, .admin-box { background: #1e293b; padding: 25px; border-radius: 15px; width: 100%; max-width: 400px; border: 1px solid #334155; margin: 20px auto; }
         .login-box h2, .admin-box h2 { text-align: center; color: var(--purple); margin-bottom: 15px; }
-        .login-box input, .login-box button, .admin-box input, .admin-box select, .admin-box button {
+        .login-box input, .login-box button, .admin-box input, .admin-box select, .admin-box textarea, .admin-box button {
             width: 100%; padding: 12px; margin-top: 10px; border-radius: 8px; border: 1px solid #334155;
             background: #0f172a; color: white; outline: none;
         }
+        .admin-box textarea { resize: vertical; min-height: 80px; font-family: inherit; }
         .login-box button, .admin-box button { background: linear-gradient(90deg, var(--blue), var(--purple)); border: none; font-weight: bold; cursor: pointer; }
         .logout-btn { background: #ef4444; border: none; padding: 8px 16px; border-radius: 8px; color: white; cursor: pointer; margin-bottom: 20px; }
         .inventory-section { width: 100%; max-width: 400px; margin: 30px auto; }
@@ -50,6 +51,7 @@
                 <option value="" disabled selected>Choose a genre...</option>
                 <option value="Business">Business</option>
                 <option value="Courses">Digital Courses</option>
+                <option value="Personal Development">Personal Development</option>
                 <option value="Tech">Tech</option>
                 <option value="Marketing">Marketing</option>
                 <option value="Fantasy">Fantasy</option>
@@ -60,6 +62,9 @@
                 <option value="Action">Action</option>
                 <option value="Young Adult">Young Adult</option>
             </select>
+            
+            <label>Description (short summary)</label>
+            <textarea id="description" rows="3" placeholder="Write a brief description of the book..."></textarea>
             
             <label>Image Link (Must start with http)</label>
             <input type="text" id="coverUrl" placeholder="Paste direct image URL">
@@ -90,11 +95,12 @@
         const titleInput = document.getElementById('title');
         const priceInput = document.getElementById('price');
         const categorySelect = document.getElementById('category');
+        const descriptionInput = document.getElementById('description');
         const coverUrlInput = document.getElementById('coverUrl');
         const loadingStatus = document.getElementById('loadingStatus');
         const inventoryDiv = document.getElementById('inventory');
 
-        let unsubscribeInventory = null;  // to clean up previous listener
+        let unsubscribeInventory = null;
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -105,6 +111,115 @@
                 return m;
             });
         }
+
+        function loadInventory() {
+            if (unsubscribeInventory) {
+                unsubscribeInventory();
+                unsubscribeInventory = null;
+            }
+            const q = query(collection(db, "books"), orderBy("timestamp", "desc"));
+            unsubscribeInventory = onSnapshot(q, (snap) => {
+                loadingStatus.style.display = 'none';
+                inventoryDiv.innerHTML = snap.docs.map(d => {
+                    const book = d.data();
+                    const safeTitle = escapeHtml(book.title);
+                    return `
+                        <div class="inventory-item">
+                            <span>${safeTitle}</span>
+                            <button class="del-btn" data-id="${d.id}">Remove</button>
+                        </div>
+                    `;
+                }).join('');
+                document.querySelectorAll('.del-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-id');
+                        if (confirm("Permanently delete this book?")) {
+                            try {
+                                await deleteDoc(doc(db, "books", id));
+                                alert("🗑️ Deleted successfully");
+                            } catch (e) {
+                                alert("Delete failed: " + e.message);
+                            }
+                        }
+                    });
+                });
+            }, (error) => {
+                loadingStatus.style.display = 'none';
+                inventoryDiv.innerHTML = `<div class="error">Error loading books: ${error.message}</div>`;
+            });
+        }
+
+        onAuthStateChanged(auth, (user) => {
+            if (user) {
+                loginContainer.style.display = 'none';
+                adminContainer.style.display = 'block';
+                loadInventory();
+            } else {
+                loginContainer.style.display = 'block';
+                adminContainer.style.display = 'none';
+                if (inventoryDiv) inventoryDiv.innerHTML = '';
+                if (unsubscribeInventory) {
+                    unsubscribeInventory();
+                    unsubscribeInventory = null;
+                }
+            }
+        });
+
+        loginBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            if (!email || !password) {
+                loginError.textContent = "Please enter email and password.";
+                loginError.style.display = 'block';
+                return;
+            }
+            loginError.style.display = 'none';
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+            } catch (error) {
+                loginError.textContent = "Login failed: " + error.message;
+                loginError.style.display = 'block';
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            await signOut(auth);
+        });
+
+        saveBtn.addEventListener('click', async () => {
+            const title = titleInput.value.trim();
+            const price = priceInput.value.trim();
+            const category = categorySelect.value;
+            const description = descriptionInput.value.trim();
+            const coverUrl = coverUrlInput.value.trim();
+
+            if (!title || !price || !category || !coverUrl) {
+                alert("All fields except description are required!");
+                return;
+            }
+            if (!coverUrl.startsWith('http')) {
+                alert("Image URL must start with http:// or https://");
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, "books"), {
+                    title, price, category, description, coverUrl,
+                    timestamp: Date.now()
+                });
+                alert("✅ Book added!");
+                titleInput.value = '';
+                priceInput.value = '';
+                categorySelect.value = '';
+                descriptionInput.value = '';
+                coverUrlInput.value = '';
+            } catch (error) {
+                alert("Error adding book: " + error.message);
+            }
+        });
+    </script>
+</body>
+</html>        }
 
         function loadInventory() {
             // Remove previous listener if exists
