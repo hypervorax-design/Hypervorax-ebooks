@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Seller Dashboard | HYPERVORAX</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root { --blue: #3b82f6; --purple: #8b5cf6; --pink: #ec4899; --dark: #0f172a; --gray: #64748b; --light: #f1f5f9; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--light); padding: 2rem 1rem; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .card { background: white; border-radius: 20px; padding: 2rem; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 2rem; }
+        h2, h3 { text-align: center; color: var(--purple); margin-bottom: 1rem; }
+        input, select, textarea, button {
+            width: 100%;
+            padding: 10px;
+            margin-top: 8px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            font-family: inherit;
+        }
+        button {
+            background: linear-gradient(90deg, var(--blue), var(--purple));
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            border: none;
+            margin-top: 1rem;
+        }
+        .message { padding: 10px; margin-top: 1rem; border-radius: 8px; display: none; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .nav { text-align: center; margin-bottom: 1rem; }
+        .nav button { background: none; color: var(--blue); border: none; cursor: pointer; margin: 0 10px; font-weight: bold; }
+        .logout { background: #ef4444; margin-top: 1rem; }
+        .submission-item {
+            background: #f8f9fa;
+            border: 1px solid #eee;
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 10px;
+        }
+        .submission-title { font-weight: bold; }
+        .submission-status { font-size: 0.85rem; color: var(--gray); }
+        .status-pending { color: #f59e0b; }
+        .status-approved { color: #10b981; }
+        .status-rejected { color: #ef4444; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Auth forms -->
+        <div id="authContainer" class="card">
+            <h2>Seller Login / Sign Up</h2>
+            <input type="email" id="email" placeholder="Email" autocomplete="email">
+            <input type="password" id="password" placeholder="Password (min 6 chars)" autocomplete="current-password">
+            <button id="loginBtn">Login</button>
+            <button id="signupBtn" style="background:#64748b;">Sign Up</button>
+            <div id="authMessage" class="message"></div>
+        </div>
+
+        <!-- Dashboard (visible after login) -->
+        <div id="dashboardContainer" class="card" style="display:none;">
+            <div class="nav">
+                <button id="showSubmitBtn">Submit New Book</button>
+                <button id="showSubmissionsBtn">My Submissions</button>
+                <button id="logoutBtn" class="logout" style="background:#ef4444;">Logout</button>
+            </div>
+
+            <!-- Submission form (hidden by default) -->
+            <div id="submissionForm" style="display:none;">
+                <h2>Submit a Book</h2>
+                <label>Book Title *</label>
+                <input type="text" id="title" placeholder="e.g. Beyond the Stars">
+
+                <label>Price *</label>
+                <input type="text" id="price" placeholder="e.g. ₦5,000">
+
+                <label>Category *</label>
+                <select id="category">
+                    <option value="" disabled selected>Choose a genre...</option>
+                    <option value="Business">Business</option>
+                    <option value="Courses">Digital Courses</option>
+                    <option value="Personal Development">Personal Development</option>
+                    <option value="Tech">Tech</option>
+                    <option value="Marketing">Marketing</option>
+                    <option value="Fantasy">Fantasy</option>
+                    <option value="Romance">Romance</option>
+                    <option value="Mystery">Mystery</option>
+                    <option value="Sci-Fi">Sci-Fi</option>
+                    <option value="History">History</option>
+                    <option value="Action">Action</option>
+                    <option value="Young Adult">Young Adult</option>
+                </select>
+
+                <label>Author (optional)</label>
+                <input type="text" id="author" placeholder="e.g. Jane Doe">
+
+                <label>Description *</label>
+                <textarea id="description" rows="3" placeholder="Write a brief description..."></textarea>
+
+                <label>Cover Image URL *</label>
+                <input type="text" id="coverUrl" placeholder="https://...">
+
+                <button id="submitBtn">Submit for Review</button>
+                <div id="submissionMessage" class="message"></div>
+            </div>
+
+            <!-- Submissions list (hidden by default) -->
+            <div id="submissionsList" style="display:none;">
+                <h3>My Submissions</h3>
+                <div id="mySubmissions"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { db, auth } from './firebase-config.js';
+        import { collection, addDoc, query, where, getDocs, onSnapshot, orderBy } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+        import { createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
+
+        const authContainer = document.getElementById('authContainer');
+        const dashboardContainer = document.getElementById('dashboardContainer');
+        const emailInput = document.getElementById('email');
+        const passwordInput = document.getElementById('password');
+        const loginBtn = document.getElementById('loginBtn');
+        const signupBtn = document.getElementById('signupBtn');
+        const logoutBtn = document.getElementById('logoutBtn');
+        const authMessage = document.getElementById('authMessage');
+        const showSubmitBtn = document.getElementById('showSubmitBtn');
+        const showSubmissionsBtn = document.getElementById('showSubmissionsBtn');
+        const submissionForm = document.getElementById('submissionForm');
+        const submissionsList = document.getElementById('submissionsList');
+        const mySubmissionsDiv = document.getElementById('mySubmissions');
+        const submitBtn = document.getElementById('submitBtn');
+        const submissionMessage = document.getElementById('submissionMessage');
+        const titleInput = document.getElementById('title');
+        const priceInput = document.getElementById('price');
+        const categorySelect = document.getElementById('category');
+        const authorInput = document.getElementById('author');
+        const descriptionInput = document.getElementById('description');
+        const coverUrlInput = document.getElementById('coverUrl');
+
+        let currentUser = null;
+        let unsubscribeSubmissions = null;
+
+        function showMessage(el, msg, type) {
+            el.textContent = msg;
+            el.className = `message ${type}`;
+            el.style.display = 'block';
+            setTimeout(() => { el.style.display = 'none'; }, 5000);
+        }
+
+        function loadMySubmissions() {
+            if (unsubscribeSubmissions) unsubscribeSubmissions();
+            const q = query(collection(db, "submissions"), where("userId", "==", currentUser.uid), orderBy("timestamp", "desc"));
+            unsubscribeSubmissions = onSnapshot(q, (snap) => {
+                if (snap.empty) {
+                    mySubmissionsDiv.innerHTML = '<p>You have not submitted any books yet.</p>';
+                    return;
+                }
+                mySubmissionsDiv.innerHTML = snap.docs.map(doc => {
+                    const sub = doc.data();
+                    let statusClass = '';
+                    if (sub.status === 'pending') statusClass = 'status-pending';
+                    else if (sub.status === 'approved') statusClass = 'status-approved';
+                    else if (sub.status === 'rejected') statusClass = 'status-rejected';
+                    return `
+                        <div class="submission-item">
+                            <div class="submission-title">${escapeHtml(sub.title)}</div>
+                            <div>Category: ${escapeHtml(sub.category)} | Price: ${escapeHtml(sub.price)}</div>
+                            <div class="submission-status ${statusClass}">Status: ${sub.status || 'pending'}</div>
+                        </div>
+                    `;
+                }).join('');
+            }, (error) => {
+                mySubmissionsDiv.innerHTML = `<div class="error">Error loading submissions: ${error.message}</div>`;
+            });
+        }
+
+        function resetSubmissionForm() {
+            titleInput.value = '';
+            priceInput.value = '';
+            categorySelect.value = '';
+            authorInput.value = '';
+            descriptionInput.value = '';
+            coverUrlInput.value = '';
+        }
+
+        async function checkDuplicate(title) {
+            const q = query(collection(db, "submissions"), where("userId", "==", currentUser.uid), where("title", "==", title));
+            const snap = await getDocs(q);
+            return !snap.empty;
+        }
+
+        submitBtn.addEventListener('click', async () => {
+            if (!currentUser) return;
+
+            const title = titleInput.value.trim();
+            const price = priceInput.value.trim();
+            const category = categorySelect.value;
+            const author = authorInput.value.trim();
+            const description = descriptionInput.value.trim();
+            const coverUrl = coverUrlInput.value.trim();
+
+            if (!title || !price || !category || !description || !coverUrl) {
+                showMessage(submissionMessage, 'All fields except author are required.', 'error');
+                return;
+            }
+            if (!coverUrl.startsWith('http')) {
+                showMessage(submissionMessage, 'Image URL must start with http:// or https://', 'error');
+                return;
+            }
+
+            // Duplicate check
+            const duplicate = await checkDuplicate(title);
+            if (duplicate) {
+                showMessage(submissionMessage, 'You have already submitted a book with this title. Please wait for review or use a different title.', 'error');
+                return;
+            }
+
+            try {
+                await addDoc(collection(db, "submissions"), {
+                    title, price, category, author, description, coverUrl,
+                    userId: currentUser.uid,
+                    sellerEmail: currentUser.email,
+                    status: 'pending',
+                    timestamp: Date.now()
+                });
+                showMessage(submissionMessage, '✅ Book submitted for review!', 'success');
+                resetSubmissionForm();
+                // Refresh the list if visible
+                if (submissionsList.style.display !== 'none') loadMySubmissions();
+            } catch (error) {
+                showMessage(submissionMessage, 'Error: ' + error.message, 'error');
+            }
+        });
+
+        onAuthStateChanged(auth, (user) => {
+            currentUser = user;
+            if (user) {
+                authContainer.style.display = 'none';
+                dashboardContainer.style.display = 'block';
+                // Show submission form by default
+                submissionForm.style.display = 'block';
+                submissionsList.style.display = 'none';
+                // Clear any previous listener
+                if (unsubscribeSubmissions) unsubscribeSubmissions();
+            } else {
+                authContainer.style.display = 'block';
+                dashboardContainer.style.display = 'none';
+                if (unsubscribeSubmissions) unsubscribeSubscriptions();
+            }
+        });
+
+        loginBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            if (!email || !password) {
+                showMessage(authMessage, 'Please enter email and password.', 'error');
+                return;
+            }
+            try {
+                await signInWithEmailAndPassword(auth, email, password);
+                showMessage(authMessage, 'Logged in!', 'success');
+            } catch (error) {
+                showMessage(authMessage, error.message, 'error');
+            }
+        });
+
+        signupBtn.addEventListener('click', async () => {
+            const email = emailInput.value.trim();
+            const password = passwordInput.value;
+            if (!email || !password) {
+                showMessage(authMessage, 'Please enter email and password.', 'error');
+                return;
+            }
+            if (password.length < 6) {
+                showMessage(authMessage, 'Password must be at least 6 characters.', 'error');
+                return;
+            }
+            try {
+                await createUserWithEmailAndPassword(auth, email, password);
+                showMessage(authMessage, 'Account created! You are now logged in.', 'success');
+            } catch (error) {
+                showMessage(authMessage, error.message, 'error');
+            }
+        });
+
+        logoutBtn.addEventListener('click', async () => {
+            await signOut(auth);
+        });
+
+        showSubmitBtn.addEventListener('click', () => {
+            submissionForm.style.display = 'block';
+            submissionsList.style.display = 'none';
+            resetSubmissionForm();
+        });
+
+        showSubmissionsBtn.addEventListener('click', () => {
+            submissionForm.style.display = 'none';
+            submissionsList.style.display = 'block';
+            if (currentUser) loadMySubmissions();
+        });
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/[&<>]/g, function(m) {
+                if (m === '&') return '&amp;';
+                if (m === '<') return '&lt;';
+                if (m === '>') return '&gt;';
+                return m;
+            });
+        }
+    </script>
+</body>
+</html>
