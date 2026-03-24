@@ -135,7 +135,7 @@
                 const safePrice = escapeHtml(book.price);
                 const safeDescription = book.description ? escapeHtml(book.description) : '';
                 const coverUrl = book.coverUrl;
-                const whatsappUrl = `https://wa.me/2348115422216?text=${encodeURIComponent(`Hello HypervoraX, I want to buy "${book.title}".`)}`;
+                const whatsappUrl = `https://wa.me/2348115422216?text=${encodeURIComponent(`Hello HypervoraX, I want to buy "${book.title}". After payment, please send the Google Drive link.`)}`;
                 // generate description html with toggle link if description exists and is long enough
                 let descriptionHtml = '';
                 if (safeDescription) {
