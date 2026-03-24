@@ -27,14 +27,13 @@
 
         .books-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2rem; padding: 2rem 1.5rem; max-width: 1200px; margin: 0 auto; }
         .book-card { background: white; border-radius: 20px; overflow: hidden; box-shadow: 0 4px 10px rgba(0,0,0,0.05); border: 1px solid #eee; transition: 0.3s; }
-        .book-cover { height: 300px; overflow: hidden; background: #e2e8f0; }
-        .book-cover img { width: 100%; height: 100%; object-fit: cover; }
+        .book-cover { height: 300px; overflow: hidden; background: #e2e8f0; cursor: pointer; }
+        .book-cover img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s; }
         .book-info { padding: 1.2rem; }
         .buy-btn { background: var(--blue); color: white; padding: 0.7rem; border-radius: 10px; text-decoration: none; display: block; text-align: center; margin-top: 10px; font-weight: bold; }
         .loading, .error, .empty { text-align: center; padding: 40px; font-weight: bold; }
         .error { color: #ef4444; }
         .empty { color: var(--gray); }
-        /* Description toggle styles */
         .book-description-wrapper {
             margin: 8px 0;
         }
@@ -68,6 +67,37 @@
         .see-more-btn:hover {
             text-decoration: underline;
         }
+
+        /* Lightbox modal */
+        .lightbox {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.9);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        .lightbox img {
+            max-width: 90%;
+            max-height: 90%;
+            object-fit: contain;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        .lightbox-close {
+            position: absolute;
+            top: 20px;
+            right: 30px;
+            color: white;
+            font-size: 40px;
+            font-weight: bold;
+            cursor: pointer;
+            z-index: 2001;
+        }
     </style>
 </head>
 <body>
@@ -98,6 +128,12 @@
     <div id="error" class="error" style="display:none;"></div>
     <div class="books-grid" id="booksGrid"></div>
 
+    <!-- Lightbox modal -->
+    <div id="lightbox" class="lightbox" onclick="closeLightbox()">
+        <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
+        <img id="lightbox-img" src="">
+    </div>
+
     <script type="module">
         import { db } from './firebase-config.js';
         import { collection, onSnapshot, query, orderBy } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
@@ -105,6 +141,19 @@
         let allBooks = [];
         let currentFilter = 'all';
         let searchTerm = '';
+
+        const lightbox = document.getElementById('lightbox');
+        const lightboxImg = document.getElementById('lightbox-img');
+
+        function openLightbox(src) {
+            lightboxImg.src = src;
+            lightbox.style.display = 'flex';
+        }
+
+        window.closeLightbox = function() {
+            lightbox.style.display = 'none';
+            lightboxImg.src = '';
+        }
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -138,6 +187,7 @@
                 const safeTitle = escapeHtml(book.title);
                 const safeCategory = escapeHtml(book.category);
                 const safePrice = escapeHtml(book.price);
+                const safeAuthor = book.author ? escapeHtml(book.author) : '';
                 const safeDescription = book.description ? escapeHtml(book.description) : '';
                 const coverUrl = book.coverUrl;
                 const whatsappUrl = `https://wa.me/2348115422216?text=${encodeURIComponent(`Hello HypervoraX, I want to buy "${book.title}". After payment, please send the Google Drive link.`)}`;
@@ -153,10 +203,13 @@
                 }
                 return `
                     <div class="book-card" data-id="${book.id}">
-                        <div class="book-cover"><img src="${coverUrl}" onerror="this.src='https://via.placeholder.com/300x400?text=No+Cover'"></div>
+                        <div class="book-cover">
+                            <img src="${coverUrl}" onerror="this.src='https://via.placeholder.com/300x400?text=No+Cover'">
+                        </div>
                         <div class="book-info">
                             <small style="color:var(--purple); font-weight:bold;">${safeCategory}</small>
                             <h3 style="margin:5px 0; font-size:1.1rem;">${safeTitle}</h3>
+                            ${safeAuthor ? `<div style="font-size:0.85rem; color:var(--gray);">by ${safeAuthor}</div>` : ''}
                             ${descriptionHtml}
                             <strong>${safePrice}</strong>
                             <a href="${whatsappUrl}" class="buy-btn">Buy Now</a>
@@ -165,7 +218,15 @@
                 `;
             }).join('');
 
-            // Attach toggle listeners using event delegation
+            // Attach lightbox listeners to images
+            document.querySelectorAll('.book-cover img').forEach(img => {
+                img.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openLightbox(img.src);
+                });
+            });
+
+            // Attach toggle listeners for description
             gridEl.addEventListener('click', (e) => {
                 const btn = e.target.closest('.see-more-btn');
                 if (!btn) return;
