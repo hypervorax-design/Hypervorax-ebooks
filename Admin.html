@@ -21,8 +21,10 @@
         .inventory-section h3 { color: white; margin-bottom: 10px; }
         .inventory-item { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; word-break: break-word; gap: 8px; }
         .inventory-item span { flex: 1; font-size: 0.9rem; }
-        .del-btn, .edit-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; margin-left: 5px; white-space: nowrap; }
+        .del-btn, .edit-btn, .approve-btn, .reject-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; margin-left: 5px; white-space: nowrap; }
         .edit-btn { background: #3b82f6; }
+        .approve-btn { background: #10b981; }
+        .reject-btn { background: #ef4444; }
         .loading, .error { text-align: center; color: var(--gray); padding: 20px; }
         .error { color: #ef4444; }
     </style>
@@ -82,6 +84,12 @@
             <div id="loadingStatus" class="loading">Fetching data...</div>
             <div id="inventory"></div>
         </div>
+
+        <div class="inventory-section">
+            <h3>Seller Submissions (Pending)</h3>
+            <div id="pendingStatus" class="loading">Loading submissions...</div>
+            <div id="pendingList"></div>
+        </div>
     </div>
 
     <script type="module">
@@ -105,9 +113,12 @@
         const coverUrlInput = document.getElementById('coverUrl');
         const loadingStatus = document.getElementById('loadingStatus');
         const inventoryDiv = document.getElementById('inventory');
+        const pendingStatus = document.getElementById('pendingStatus');
+        const pendingList = document.getElementById('pendingList');
 
         let unsubscribeInventory = null;
-        let editingId = null;   // if not null, we are editing this document
+        let unsubscribePending = null;
+        let editingId = null;
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -127,7 +138,7 @@
             descriptionInput.value = '';
             coverUrlInput.value = '';
             editingId = null;
-            saveBtn.textContent = 'Publish to Store';   // reset button text
+            saveBtn.textContent = 'Publish to Store';
         }
 
         function fillForm(book) {
@@ -163,7 +174,6 @@
                     `;
                 }).join('');
 
-                // Delete buttons
                 document.querySelectorAll('.del-btn').forEach(btn => {
                     btn.addEventListener('click', async () => {
                         const id = btn.getAttribute('data-id');
@@ -171,7 +181,7 @@
                             try {
                                 await deleteDoc(doc(db, "books", id));
                                 alert("🗑️ Deleted successfully");
-                                if (editingId === id) resetForm(); // clear edit if we deleted it
+                                if (editingId === id) resetForm();
                             } catch (e) {
                                 alert("Delete failed: " + e.message);
                             }
@@ -179,7 +189,6 @@
                     });
                 });
 
-                // Edit buttons
                 document.querySelectorAll('.edit-btn').forEach(btn => {
                     btn.addEventListener('click', async () => {
                         const id = btn.getAttribute('data-id');
@@ -204,18 +213,97 @@
             });
         }
 
+        function loadPending() {
+            if (unsubscribePending) {
+                unsubscribePending();
+                unsubscribePending = null;
+            }
+            const q = query(collection(db, "submissions"), orderBy("timestamp", "desc"));
+            unsubscribePending = onSnapshot(q, (snap) => {
+                pendingStatus.style.display = 'none';
+                if (snap.empty) {
+                    pendingList.innerHTML = '<div class="loading">No pending submissions.</div>';
+                    return;
+                }
+                pendingList.innerHTML = snap.docs.map(doc => {
+                    const sub = doc.data();
+                    return `
+                        <div class="inventory-item" data-id="${doc.id}">
+                            <div style="flex:1;">
+                                <strong>${escapeHtml(sub.title)}</strong> (${escapeHtml(sub.category)})<br>
+                                Seller: ${escapeHtml(sub.sellerEmail)}<br>
+                                <small>Price: ${escapeHtml(sub.price)}</small>
+                            </div>
+                            <div style="display: flex; gap: 5px;">
+                                <button class="approve-btn" data-id="${doc.id}">✅ Approve</button>
+                                <button class="reject-btn" data-id="${doc.id}">🗑️ Reject</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                document.querySelectorAll('.approve-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-id');
+                        if (confirm("Approve this submission? It will be added to the store.")) {
+                            try {
+                                const subDoc = await getDoc(doc(db, "submissions", id));
+                                const sub = subDoc.data();
+                                await addDoc(collection(db, "books"), {
+                                    title: sub.title,
+                                    price: sub.price,
+                                    category: sub.category,
+                                    author: sub.author || '',
+                                    description: sub.description || '',
+                                    coverUrl: sub.coverUrl,
+                                    timestamp: Date.now()
+                                });
+                                await deleteDoc(doc(db, "submissions", id));
+                                alert("✅ Book approved and added to store!");
+                            } catch (e) {
+                                alert("Error approving: " + e.message);
+                            }
+                        }
+                    });
+                });
+
+                document.querySelectorAll('.reject-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-id');
+                        if (confirm("Reject this submission? It will be deleted.")) {
+                            try {
+                                await deleteDoc(doc(db, "submissions", id));
+                                alert("🗑️ Submission rejected.");
+                            } catch (e) {
+                                alert("Error rejecting: " + e.message);
+                            }
+                        }
+                    });
+                });
+            }, (error) => {
+                pendingStatus.style.display = 'none';
+                pendingList.innerHTML = `<div class="error">Error loading submissions: ${error.message}</div>`;
+            });
+        }
+
         onAuthStateChanged(auth, (user) => {
             if (user) {
                 loginContainer.style.display = 'none';
                 adminContainer.style.display = 'block';
                 loadInventory();
+                loadPending();
             } else {
                 loginContainer.style.display = 'block';
                 adminContainer.style.display = 'none';
                 if (inventoryDiv) inventoryDiv.innerHTML = '';
+                if (pendingList) pendingList.innerHTML = '';
                 if (unsubscribeInventory) {
                     unsubscribeInventory();
                     unsubscribeInventory = null;
+                }
+                if (unsubscribePending) {
+                    unsubscribePending();
+                    unsubscribePending = null;
                 }
             }
         });
@@ -261,14 +349,12 @@
 
             try {
                 if (editingId) {
-                    // Update existing book
                     await updateDoc(doc(db, "books", editingId), {
                         title, price, category, author, description, coverUrl,
-                        timestamp: Date.now()   // update timestamp
+                        timestamp: Date.now()
                     });
                     alert("✅ Book updated!");
                 } else {
-                    // Add new book
                     await addDoc(collection(db, "books"), {
                         title, price, category, author, description, coverUrl,
                         timestamp: Date.now()
