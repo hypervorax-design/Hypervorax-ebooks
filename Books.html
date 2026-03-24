@@ -67,8 +67,6 @@
         .see-more-btn:hover {
             text-decoration: underline;
         }
-
-        /* Lightbox modal */
         .lightbox {
             display: none;
             position: fixed;
@@ -128,7 +126,6 @@
     <div id="error" class="error" style="display:none;"></div>
     <div class="books-grid" id="booksGrid"></div>
 
-    <!-- Lightbox modal -->
     <div id="lightbox" class="lightbox" onclick="closeLightbox()">
         <span class="lightbox-close" onclick="closeLightbox()">&times;</span>
         <img id="lightbox-img" src="">
@@ -218,7 +215,6 @@
                 `;
             }).join('');
 
-            // Attach lightbox listeners to images
             document.querySelectorAll('.book-cover img').forEach(img => {
                 img.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -226,7 +222,6 @@
                 });
             });
 
-            // Attach toggle listeners for description
             gridEl.addEventListener('click', (e) => {
                 const btn = e.target.closest('.see-more-btn');
                 if (!btn) return;
