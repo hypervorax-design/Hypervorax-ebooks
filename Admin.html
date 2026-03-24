@@ -19,8 +19,10 @@
         .logout-btn { background: #ef4444; border: none; padding: 8px 16px; border-radius: 8px; color: white; cursor: pointer; margin-bottom: 20px; }
         .inventory-section { width: 100%; max-width: 400px; margin: 30px auto; }
         .inventory-section h3 { color: white; margin-bottom: 10px; }
-        .inventory-item { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; }
-        .del-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; }
+        .inventory-item { background: #1e293b; padding: 12px; margin-bottom: 8px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid #334155; word-break: break-word; gap: 8px; }
+        .inventory-item span { flex: 1; font-size: 0.9rem; }
+        .del-btn, .edit-btn { background: #ef4444; color: white; border: none; padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; font-weight: bold; margin-left: 5px; white-space: nowrap; }
+        .edit-btn { background: #3b82f6; }
         .loading, .error { text-align: center; color: var(--gray); padding: 20px; }
         .error { color: #ef4444; }
     </style>
@@ -40,13 +42,13 @@
         <button class="logout-btn" id="logoutBtn">Logout</button>
         <div class="admin-box">
             <h2>HypervoraX Admin</h2>
-            <label>Book Title</label>
+            <label>Book Title *</label>
             <input type="text" id="title" placeholder="e.g. Beyond the Stars">
             
-            <label>Price</label>
+            <label>Price *</label>
             <input type="text" id="price" placeholder="e.g. ₦3,000">
             
-            <label>Category</label>
+            <label>Category *</label>
             <select id="category">
                 <option value="" disabled selected>Choose a genre...</option>
                 <option value="Business">Business</option>
@@ -63,10 +65,13 @@
                 <option value="Young Adult">Young Adult</option>
             </select>
             
+            <label>Author (optional)</label>
+            <input type="text" id="author" placeholder="e.g. Jane Doe">
+            
             <label>Description (short summary)</label>
             <textarea id="description" rows="3" placeholder="Write a brief description of the book..."></textarea>
             
-            <label>Image Link (Must start with http)</label>
+            <label>Image Link (Must start with http) *</label>
             <input type="text" id="coverUrl" placeholder="Paste direct image URL">
             
             <button id="saveBtn">Publish to Store</button>
@@ -81,7 +86,7 @@
 
     <script type="module">
         import { db, auth } from './firebase-config.js';
-        import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
+        import { collection, addDoc, onSnapshot, query, orderBy, deleteDoc, doc, updateDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-firestore.js";
         import { signInWithEmailAndPassword, signOut, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.11.0/firebase-auth.js";
 
         const loginContainer = document.getElementById('loginContainer');
@@ -95,12 +100,14 @@
         const titleInput = document.getElementById('title');
         const priceInput = document.getElementById('price');
         const categorySelect = document.getElementById('category');
+        const authorInput = document.getElementById('author');
         const descriptionInput = document.getElementById('description');
         const coverUrlInput = document.getElementById('coverUrl');
         const loadingStatus = document.getElementById('loadingStatus');
         const inventoryDiv = document.getElementById('inventory');
 
         let unsubscribeInventory = null;
+        let editingId = null;   // if not null, we are editing this document
 
         function escapeHtml(str) {
             if (!str) return '';
@@ -110,6 +117,26 @@
                 if (m === '>') return '&gt;';
                 return m;
             });
+        }
+
+        function resetForm() {
+            titleInput.value = '';
+            priceInput.value = '';
+            categorySelect.value = '';
+            authorInput.value = '';
+            descriptionInput.value = '';
+            coverUrlInput.value = '';
+            editingId = null;
+            saveBtn.textContent = 'Publish to Store';   // reset button text
+        }
+
+        function fillForm(book) {
+            titleInput.value = book.title || '';
+            priceInput.value = book.price || '';
+            categorySelect.value = book.category || '';
+            authorInput.value = book.author || '';
+            descriptionInput.value = book.description || '';
+            coverUrlInput.value = book.coverUrl || '';
         }
 
         function loadInventory() {
@@ -123,13 +150,20 @@
                 inventoryDiv.innerHTML = snap.docs.map(d => {
                     const book = d.data();
                     const safeTitle = escapeHtml(book.title);
+                    const safeAuthor = book.author ? escapeHtml(book.author) : '';
+                    const displayText = safeAuthor ? `${safeTitle} (by ${safeAuthor})` : safeTitle;
                     return `
-                        <div class="inventory-item">
-                            <span>${safeTitle}</span>
-                            <button class="del-btn" data-id="${d.id}">Remove</button>
+                        <div class="inventory-item" data-id="${d.id}">
+                            <span>${displayText}</span>
+                            <div>
+                                <button class="edit-btn" data-id="${d.id}">✏️ Edit</button>
+                                <button class="del-btn" data-id="${d.id}">Remove</button>
+                            </div>
                         </div>
                     `;
                 }).join('');
+
+                // Delete buttons
                 document.querySelectorAll('.del-btn').forEach(btn => {
                     btn.addEventListener('click', async () => {
                         const id = btn.getAttribute('data-id');
@@ -137,9 +171,30 @@
                             try {
                                 await deleteDoc(doc(db, "books", id));
                                 alert("🗑️ Deleted successfully");
+                                if (editingId === id) resetForm(); // clear edit if we deleted it
                             } catch (e) {
                                 alert("Delete failed: " + e.message);
                             }
+                        }
+                    });
+                });
+
+                // Edit buttons
+                document.querySelectorAll('.edit-btn').forEach(btn => {
+                    btn.addEventListener('click', async () => {
+                        const id = btn.getAttribute('data-id');
+                        try {
+                            const docRef = doc(db, "books", id);
+                            const docSnap = await getDoc(docRef);
+                            if (docSnap.exists()) {
+                                fillForm(docSnap.data());
+                                editingId = id;
+                                saveBtn.textContent = 'Update Book';
+                            } else {
+                                alert("Book not found");
+                            }
+                        } catch (e) {
+                            alert("Error loading book: " + e.message);
                         }
                     });
                 });
@@ -184,17 +239,19 @@
 
         logoutBtn.addEventListener('click', async () => {
             await signOut(auth);
+            resetForm();
         });
 
         saveBtn.addEventListener('click', async () => {
             const title = titleInput.value.trim();
             const price = priceInput.value.trim();
             const category = categorySelect.value;
+            const author = authorInput.value.trim();
             const description = descriptionInput.value.trim();
             const coverUrl = coverUrlInput.value.trim();
 
             if (!title || !price || !category || !coverUrl) {
-                alert("All fields except description are required!");
+                alert("Title, Price, Category, and Image Link are required!");
                 return;
             }
             if (!coverUrl.startsWith('http')) {
@@ -203,18 +260,24 @@
             }
 
             try {
-                await addDoc(collection(db, "books"), {
-                    title, price, category, description, coverUrl,
-                    timestamp: Date.now()
-                });
-                alert("✅ Book added!");
-                titleInput.value = '';
-                priceInput.value = '';
-                categorySelect.value = '';
-                descriptionInput.value = '';
-                coverUrlInput.value = '';
+                if (editingId) {
+                    // Update existing book
+                    await updateDoc(doc(db, "books", editingId), {
+                        title, price, category, author, description, coverUrl,
+                        timestamp: Date.now()   // update timestamp
+                    });
+                    alert("✅ Book updated!");
+                } else {
+                    // Add new book
+                    await addDoc(collection(db, "books"), {
+                        title, price, category, author, description, coverUrl,
+                        timestamp: Date.now()
+                    });
+                    alert("✅ Book added!");
+                }
+                resetForm();
             } catch (error) {
-                alert("Error adding book: " + error.message);
+                alert("Error: " + error.message);
             }
         });
     </script>
