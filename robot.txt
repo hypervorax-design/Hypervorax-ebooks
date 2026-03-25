@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://hypervorax-design.github.io/Hypervorax-ebooks/sitemap.xml
